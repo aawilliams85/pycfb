@@ -1,2 +1,2 @@
 # pycfb
-Python Compound Binary File Utility
+Python Compound File Binary Utility

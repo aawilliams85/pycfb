@@ -1,0 +1,15 @@
+[project]
+name = "pycfb"
+description = "Python Compound File Binary Utility"
+version = "0.0.1"
+readme = "README.md"
+license = {file = "LICENSE"}
+authors = [
+    { name = "aawilliams85", email = "adair.williams85@gmail.com" }
+]
+dependencies = []
+
+[project.optional-dependencies]
+
+[project.urls]
+Repository = "https://github.com/aawilliams85/pycfb.git"
