@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from . import enums
+from pycfb import enums
 
 @dataclass
 class CfbHeader:
