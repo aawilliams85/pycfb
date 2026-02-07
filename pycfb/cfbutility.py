@@ -179,14 +179,13 @@ class CFBWriter:
         # The FAT needs to allocate space for the directory and each file, including end-of-chains for each
         fat_entries = self._calc_size_directory_sectors() + 1 # Add one for end-of-chain ???
         for x in self._calc_size_file_sectors_by_file(): fat_entries += (x + 1) # Add one for each end-of-chain
+        fat_entries += (fat_entries // self._fat_entries_per_sector) # Include overhead for the FAT sectors
         return fat_entries
 
     def _calc_size_fat_sectors(self) -> int:
-        fudge = 2 # My math is wrong somewhere because I needed an extra 2 sectors to get by even before directory is implemented
         fat_entries = self._calc_size_fat_entries()
         fat_size_bytes = fat_entries * SIZE_FAT_ENTRY_BYTES
-        fat_size_sectors = math.ceil(fat_size_bytes / self._sector_size_bytes) + fudge
-        print(f'Sector math fudge factor of {fudge} still present.')
+        fat_size_sectors = math.ceil(fat_size_bytes / self._sector_size_bytes)
         return fat_size_sectors
 
     def _allocate_fat(self):
