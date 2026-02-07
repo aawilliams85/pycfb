@@ -31,36 +31,11 @@ class CFBWriter:
         # Initialize binary structure            
         ###########################################################################
         self._data = bytearray(self._calc_total_size_bytes())
-
-        # Header
-        self._header = cHeader.from_buffer(self._data, self._next_freesect_offset)
+        self._allocate_header()
         self._allocate_cfat_sectors()
         self._allocate_cdifat_sectors()
-
-        self._header.signature = HEADER_SIGNATURE
-        #self._header.clsid = HEADER_CLSID_NULL
-        self._header.version_minor = HEADER_VERSION_MINOR
-        self._header.version_major = HEADER_VERSION_MAJOR
-        self._header.byte_order = HEADER_BYTE_ORDER
-        self._header.sector_shift = SHIFT_SECTOR_BITS_V3
-        self._header.mini_sector_shift = SHIFT_MINISECTOR_BITS
-        self._header.sector_count_directory = 0 # Always zero for v3
-        self._header.sector_count_fat = self._calc_size_fat_sectors()
-        self._header.sector_start_directory = 0 # **** NEED TO POPULATE ***
-        self._header.transaction_signature = 0
-        self._header.mini_cutoff_size = SIZE_MINISTREAM_CUTOFF_BYTES
-        self._header.sector_start_minifat = CfbSector.EndOfChain # not supporting MINISTREAM initially so MINIFAT is not needed
-        self._header.sector_count_minifat = self._calc_size_minifat_sectors()
-
-        if (len(self._cdifat_sectors) > 0):
-            self._header.sector_start_difat = self._get_sector_offset(self._cdifat_sectors[0])
-            self._header.sector_count_difat = len(self._cdifat_sectors)
-        else:
-            self._header.sector_start_difat = CfbSector.EndOfChain # Until DIFAT needs to be expanded, it ends with the header entries
-            self._header.sector_count_difat = 0
-        self._header.sector_data_difat[:] = self._init_table_entries(size=HEADER_DIFAT_COUNT)
-        self._increment_next_freesect()
-
+        self._update_header()
+        '''
         # Create Root Directory entry
         self._root_directory = CfbDirEntry(
             name='Root Entry',
@@ -78,7 +53,6 @@ class CFBWriter:
             size_bytes=0
         )
 
-        '''
         for stream in self._raw_input_data:
             stream_size_sectors = math.ceil(len(stream)/self._sector_size_bytes)
             for x in range(stream_size_sectors):
@@ -114,6 +88,40 @@ class CFBWriter:
         base_address = ctypes.addressof(ctypes.c_char.from_buffer(self._data))
         sector_address = ctypes.addressof(sector)
         return (sector_address - base_address)
+    def _get_sector_number(self, sector: ctypes.Structure) -> int:
+        sector_offset = self._get_sector_offset(sector)
+        sector_number = (sector_offset // self._sector_size_bytes) - 1
+        return sector_number
+
+    ###########################################################################
+    # Header Logic
+    ###########################################################################
+    def _allocate_header(self):
+        self._header = cHeader.from_buffer(self._data, self._next_freesect_offset)
+        self._increment_next_freesect()
+    def _update_header(self):
+        self._header.signature = HEADER_SIGNATURE
+        #self._header.clsid = HEADER_CLSID_NULL
+        self._header.version_minor = HEADER_VERSION_MINOR
+        self._header.version_major = HEADER_VERSION_MAJOR
+        self._header.byte_order = HEADER_BYTE_ORDER
+        self._header.sector_shift = SHIFT_SECTOR_BITS_V3
+        self._header.mini_sector_shift = SHIFT_MINISECTOR_BITS
+        self._header.sector_count_directory = 0 # Always zero for v3
+        self._header.sector_count_fat = self._calc_size_fat_sectors()
+        self._header.sector_start_directory = 0 # **** NEED TO POPULATE ***
+        self._header.transaction_signature = 0
+        self._header.mini_cutoff_size = SIZE_MINISTREAM_CUTOFF_BYTES
+        self._header.sector_start_minifat = CfbSector.EndOfChain # not supporting MINISTREAM initially so MINIFAT is not needed
+        self._header.sector_count_minifat = self._calc_size_minifat_sectors()
+
+        if (len(self._cdifat_sectors) > 0):
+            self._header.sector_start_difat = self._get_sector_number(self._cdifat_sectors[0])
+            self._header.sector_count_difat = len(self._cdifat_sectors)
+        else:
+            self._header.sector_start_difat = CfbSector.EndOfChain # Until DIFAT needs to be expanded, it ends with the header entries
+            self._header.sector_count_difat = 0
+        self._header.sector_data_difat[:] = self._init_table_entries(size=HEADER_DIFAT_COUNT)
 
     ###########################################################################
     # DIFAT Logic
@@ -127,38 +135,15 @@ class CFBWriter:
         if (difat_size_bytes < 0): difat_size_bytes = 0
         difat_size_sectors = math.ceil(difat_size_bytes / self._sector_size_bytes)
         return difat_size_sectors
-    def _allocate_difat_sectors(self):
-        # Initialize DIFAT list of entries
-        self._difat_sectors: list[CfbMappedSector] = []
-
-        # The first DIFAT sector is special because it is part of the header
-        new_sector = CfbMappedSector(sector_size=(HEADER_DIFAT_COUNT * SIZE_DIFAT_ENTRY_BYTES), sector_number=-1,sector_offset=(-1*self._sector_size_bytes))
-        new_sector.init_int32(value=CfbSector.FreeSect,length=HEADER_DIFAT_COUNT)
-        self._difat_sectors.append(new_sector)
-
-        # Subsequent DIFAT sectors are only created if necessary
-        for x in range(self._calc_size_difat_sectors()):
-            new_sector = CfbMappedSector(sector_size=self._sector_size_bytes, sector_number=self._next_freesect_number, sector_offset=self._next_freesect_offset)
-            new_sector.init_int32(value=CfbSector.FreeSect,length=(self._sector_size_bytes // SIZE_FAT_ENTRY_BYTES))
-            self._difat_sectors.append(new_sector)
-            self._update_fat_entry(index=new_sector.sector_number, value=CfbSector.DifSect)
-            self._next_freesect_offset += self._sector_size_bytes
-            self._next_freesect_number += 1
-
-    def _update_difat_entry(self, index: int, value: int):
-        eps = self._sector_size_bytes // SIZE_DIFAT_ENTRY_BYTES
-        sector_idx = index // eps
-        sector_offset = (index % eps) * SIZE_DIFAT_ENTRY_BYTES
-        self._difat_sectors[sector_idx].set_int32(offset=sector_offset,value=value)
     def _allocate_cdifat_sectors(self):
         self._cdifat_sectors: list[cDifatSector] = []
         for x in range(self._calc_size_difat_sectors()):
             new_sector = cDifatSector.from_buffer(self._data, self._next_freesect_offset)
-            for y in range(self._difat_entries_per_sector): new_sector.entries[y] = CfbSector.FreeSect
+            for y in range(self._difat_entries_per_sector): new_sector.entries[y] = CfbSector.DifSect
             new_sector.next_difat = CfbSector.EndOfChain
 
             # Chain the previous DIFAT sector to this one
-            if (x > 0): self._cdifat_sectors[x-1].next_difat = self._next_freesect_offset - self._sector_size_bytes
+            if (x > 0): self._cdifat_sectors[x-1].next_difat = self._get_sector_number(new_sector)
 
             self._cdifat_sectors.append(new_sector)
             # Set DIFAT entry in FAT?
@@ -172,8 +157,6 @@ class CFBWriter:
             sector_idx = index_remainder // self._difat_entries_per_sector
             entry_idx = index_remainder % self._difat_entries_per_sector
             print(f'Setting DIFAT {index} to {value} at {sector_idx} {entry_idx}')
-
-
 
     ###########################################################################
     # FAT Logic
@@ -201,30 +184,6 @@ class CFBWriter:
         entry_idx = index % self._fat_entries_per_sector
         print(f'Setting FAT {index} to {value} at {sector_idx} {entry_idx}')
         self._cfat_sectors[sector_idx].entries[entry_idx] = value
-
-    def _allocate_fat_sectors(self):
-        self._fat_sectors: list[CfbMappedSector] = []
-        for x in range(self._calc_size_fat_sectors()):
-            new_sector = CfbMappedSector(sector_size=self._sector_size_bytes, sector_number=self._next_freesect_number, sector_offset=self._next_freesect_offset)
-            new_sector.init_int32(value=CfbSector.FreeSect,length=(self._sector_size_bytes // SIZE_FAT_ENTRY_BYTES))
-            self._fat_sectors.append(new_sector)
-            self._update_fat_entry(index=new_sector.sector_number, value=CfbSector.FatSect)
-            self._next_freesect_offset += self._sector_size_bytes
-            self._next_freesect_number += 1
-    def _update_fat_entry(self, index: int, value: int):
-        eps = self._sector_size_bytes // SIZE_FAT_ENTRY_BYTES
-        sector_idx = index // eps
-        sector_offset = (index % eps) * SIZE_FAT_ENTRY_BYTES
-        self._fat_sectors[sector_idx].set_int32(offset=sector_offset,value=value)
-    def _fat_get_next_freesect(self) -> tuple[int,int]:
-        eps = self._sector_size_bytes // SIZE_FAT_ENTRY_BYTES
-        for x in self._fat_sectors:
-            next_freesect_offset = x.seek_int32(CfbSector.FreeSect)
-            if (next_freesect_offset >= 0):
-                pass
-                #sector_idx = 
-                #sector_idx = index // eps
-        raise ValueError('Failed to find next free sector in FAT.')
 
     ###########################################################################
     # Directory Logic
