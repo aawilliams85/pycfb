@@ -1,4 +1,6 @@
 import ctypes
+from dataclasses import dataclass
+from typing import Optional, List
 
 class cHeader(ctypes.Structure):
     _pack_ = 1
@@ -93,3 +95,11 @@ class cDirEntry(ctypes.Structure):
     time_modified: int
     sector_start: int
     size_bytes: int
+
+@dataclass
+class FileTreeItem:
+    path: str
+    name: str
+    is_file: bool
+    original_index: Optional[int] = None
+    parent_index: Optional[int] = None

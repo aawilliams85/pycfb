@@ -39,7 +39,12 @@ class CFBWriter:
         self._allocate_fat()
         self._allocate_difat()
         self._update_difat()
-        for stream in self._raw_input_data: self._write_stream(stream)
+
+        self._stream_start_sectors: list[int] = []
+        for stream in self._raw_input_data:
+            self._stream_start_sectors.append(self._next_freesect_number)
+            self._write_stream(stream)
+
         self._allocate_directory()
         self._update_header()
 
@@ -53,6 +58,7 @@ class CFBWriter:
         self._next_fat += 1
 
     def _increment_next_directory(self):
+        # Used to track the next available directory entry in a sector
         self._next_directory += SIZE_DIRECTORY_ENTRY_BYTES
         if (self._next_directory % self._sector_size_bytes) == 0:
             self._next_directory = 0
@@ -110,7 +116,6 @@ class CFBWriter:
         else:
             self._header.sector_start_difat = CfbSector.EndOfChain # Until DIFAT needs to be expanded, it ends with the header entries
             self._header.sector_count_difat = 0
-        #self._header.sector_data_difat[:] = self._init_table_entries(size=HEADER_DIFAT_COUNT)
 
     ###########################################################################
     # DIFAT Logic
@@ -220,16 +225,44 @@ class CFBWriter:
         self._increment_next_directory()
 
         # Storage (folder) and stream (file) entries
-        for x in range(self._calc_size_directory_entries()):
-            #print(f'x {x}, dir {self._next_directory}')
-            raw_name = f'{x}\x00'.encode('utf-16-le')
+        dirs = GetFileTree(self._raw_input_paths)
+        for i, x in enumerate(dirs):
+            # Create this item
+            print(x)
+            raw_name = f'{x.name[:31]}\x00'.encode('utf-16-le') # Truncating name for now
             new_entry = cDirEntry.from_buffer(self._data, self._next_freesect_offset + self._next_directory)
             new_entry.name[:len(raw_name)] = raw_name
             new_entry.name_len_bytes = len(raw_name)
+            new_entry.object_type = CfbDirType.Stream if x.is_file else CfbDirType.Storage
+            new_entry.color_flag = CfbDirColor.Red
+            new_entry.left_sibling_id = CfbSector.FreeSect
+            new_entry.right_sibling_id = CfbSector.FreeSect
+            new_entry.child_id = CfbSector.EndOfChain
+            new_entry.size_bytes = len(self._raw_input_data[x.original_index]) if x.is_file else 0
+            new_entry.sector_start = self._stream_start_sectors[x.original_index] if x.is_file else 0
+
+            # Fixup parent item -- Root Entry
+            if (x.parent_index is None):
+                if (self._directory[0].child_id == CfbSector.EndOfChain):
+                    print('Fixup root entry')
+                    self._directory[0].child_id = i + 1
+                else:
+                    for j, y in enumerate(self._directory):
+                        if j == 0: continue
+                        if (y.right_sibling_id == CfbSector.FreeSect):
+                            print(f'Fixup root sibling {j}')
+                            self._directory[j].right_sibling_id = i + 1
+                            new_entry.left_sibling_id = j + 1
+                            break
+
+            # Fixup parent item - user data
+            if (x.parent_index is not None) and (self._directory[x.parent_index+1].child_id == CfbSector.EndOfChain):
+                print('Fixup other entry')
+                self._directory[x.parent_index+1].child_id = i + 1
+
             self._directory.append(new_entry)
             self._increment_next_directory()
 
-        #if (self._next_directory != 0):
         self._increment_next_fat()
         self._increment_next_freesect()
             
@@ -239,7 +272,7 @@ class CFBWriter:
         new_entry.name[:len(raw_name)] = raw_name
         new_entry.name_len_bytes = len(raw_name)
         new_entry.object_type = CfbDirType.RootStorage
-        new_entry.color_flag = CfbDirColor.Red
+        new_entry.color_flag = CfbDirColor.Black
         new_entry.left_sibling_id = CfbSector.FreeSect
         new_entry.right_sibling_id = CfbSector.FreeSect
         new_entry.child_id = CfbSector.EndOfChain # not supporting MINISTREAM initially, which would be pointed to here
