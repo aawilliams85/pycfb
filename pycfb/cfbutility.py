@@ -309,11 +309,13 @@ class CFBWriter:
 
             offset = self._next_freesect_offset
             sector = offset // self._sector_size_bytes
-            self._update_fat_by_index(self._next_fat, sector)
+            #self._update_fat_by_index(self._next_fat, sector)
+            if (x > 0): self._update_fat_by_index(self._next_fat - 1, self._next_fat)
+            self._update_fat_by_index(self._next_fat, CfbSector.EndOfChain)
             view[offset : offset + self._sector_size_bytes] = chunk
             self._increment_next_fat()
             self._increment_next_freesect()
 
         # Mark this file's end-of-chain
-        self._update_fat_by_index(self._next_fat, CfbSector.EndOfChain)
-        self._increment_next_fat()
+        #self._update_fat_by_index(self._next_fat, CfbSector.EndOfChain)
+        #self._increment_next_fat()
