@@ -200,7 +200,7 @@ class CFBWriter:
     def _calc_size_directory_entries(self) -> int:
         # The directory tree includes a Root Entry, one entry for each file, and one entry for each folder.
         file_count = len(self._raw_input_names)
-        folder_count = len(GetUniqueSubdirs(self._raw_input_names))
+        folder_count = len(GetUniqueSubdirs(self._raw_input_paths))
         return (file_count + folder_count + 1) # Adding one for Root Directory
 
     def _calc_size_directory_sectors(self) -> int:
@@ -212,17 +212,22 @@ class CFBWriter:
     def _allocate_directory(self):
         self._directory: list[cDirEntry] = []
         self._next_directory = 0
-        print(f'entries {self._calc_size_directory_entries()}')
+        #print(f'entries {self._calc_size_directory_entries()}')
         # Update FAT for first sector
         self._directory.append(self._allocate_directory_root())
+        #print(f'dir {self._next_directory}')
+        self._increment_next_directory()
         for x in range(self._calc_size_directory_entries()):
-            print(x)
-            new_entry = cDirEntry.from_buffer(self._data, self._next_freesect_offset)
+            #print(f'x {x}, dir {self._next_directory}')
+            raw_name = f'{x}\x00'.encode('utf-16-le')
+            new_entry = cDirEntry.from_buffer(self._data, self._next_freesect_offset + self._next_directory)
+            new_entry.name[:len(raw_name)] = raw_name
+            new_entry.name_len_bytes = len(raw_name)
             self._directory.append(new_entry)
             self._increment_next_directory()
             
     def _allocate_directory_root(self) -> cDirEntry:
-        raw_name = 'Root Entry\x00'.encode("utf-16-le")
+        raw_name = 'Root Entry\x00'.encode('utf-16-le')
         new_entry = cDirEntry.from_buffer(self._data, self._next_freesect_offset + self._next_directory)
         new_entry.name[:len(raw_name)] = raw_name
         new_entry.name_len_bytes = len(raw_name)
@@ -232,7 +237,6 @@ class CFBWriter:
         new_entry.right_sibling_id = CfbSector.FreeSect
         new_entry.child_id = CfbSector.EndOfChain # not supporting MINISTREAM initially, which would be pointed to here
         new_entry.clsid = (ctypes.c_byte * 16).from_buffer_copy(self._root_clsid.bytes)
-        self._increment_next_directory()
         return new_entry
 
     ###########################################################################
