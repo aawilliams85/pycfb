@@ -64,7 +64,7 @@ class cDifatSector(ctypes.Structure):
 class cDirEntry(ctypes.Structure):
     _pack_ = 1
     _fields_ = [
-        ("name", ctypes.c_char * 64),
+        ("name", ctypes.c_ubyte * 64),
         ("name_len_bytes", ctypes.c_uint16),
         ("object_type", ctypes.c_uint8),
         ("color_flag", ctypes.c_uint8),
