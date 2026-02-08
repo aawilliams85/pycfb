@@ -56,9 +56,10 @@ class CFBWriter:
         self._next_directory += SIZE_DIRECTORY_ENTRY_BYTES
         if (self._next_directory % self._sector_size_bytes) == 0:
             self._next_directory = 0
-            print(f'Will need to do something with the next fat entry here')
+            self._update_fat_by_index(self._next_fat, self._next_freesect_offset // self._sector_size_bytes)
             self._increment_next_fat()
             self._increment_next_freesect()
+            self._update_fat_by_index(self._next_fat, CfbSector.EndOfChain)
 
     def _calc_total_size_bytes(self) -> int:
         total_sectors = 1 # Header
@@ -68,7 +69,6 @@ class CFBWriter:
         total_sectors += self._calc_size_file_sectors()
         total_sectors += self._calc_size_minifat_sectors()
         total_sectors += self._calc_size_ministream_sectors()
-        print(f'total_sectors {total_sectors}')
         return (total_sectors * self._sector_size_bytes)
     
     def _get_sector_offset(self, sector: ctypes.Structure) -> int:
@@ -210,13 +210,16 @@ class CFBWriter:
         return directory_size_sectors
 
     def _allocate_directory(self):
+        # Initialize directory list
         self._directory: list[cDirEntry] = []
         self._next_directory = 0
-        #print(f'entries {self._calc_size_directory_entries()}')
-        # Update FAT for first sector
+
+        # Root Entry
         self._directory.append(self._allocate_directory_root())
-        #print(f'dir {self._next_directory}')
+        self._update_fat_by_index(self._next_fat, CfbSector.EndOfChain)
         self._increment_next_directory()
+
+        # Storage (folder) and stream (file) entries
         for x in range(self._calc_size_directory_entries()):
             #print(f'x {x}, dir {self._next_directory}')
             raw_name = f'{x}\x00'.encode('utf-16-le')
@@ -225,6 +228,10 @@ class CFBWriter:
             new_entry.name_len_bytes = len(raw_name)
             self._directory.append(new_entry)
             self._increment_next_directory()
+
+        #if (self._next_directory != 0):
+        self._increment_next_fat()
+        self._increment_next_freesect()
             
     def _allocate_directory_root(self) -> cDirEntry:
         raw_name = 'Root Entry\x00'.encode('utf-16-le')
