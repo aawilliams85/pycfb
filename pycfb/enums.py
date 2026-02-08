@@ -17,3 +17,4 @@ class CfbSector(IntEnum):
     FatSect = 0xFFFFFFFD    # File Allocation Table Sector
     EndOfChain = 0xFFFFFFFE # End of Sector Chain
     FreeSect = 0xFFFFFFFF   # Free/Unallocated Sector
+    NoStream = 0xFFFFFFFF   # No Stream

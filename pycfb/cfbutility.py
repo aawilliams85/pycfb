@@ -228,36 +228,36 @@ class CFBWriter:
         dirs = GetFileTree(self._raw_input_paths)
         for i, x in enumerate(dirs):
             # Create this item
-            print(x)
+            if VERBOSE: print(x)
             raw_name = f'{x.name[:31]}\x00'.encode('utf-16-le') # Truncating name for now
             new_entry = cDirEntry.from_buffer(self._data, self._next_freesect_offset + self._next_directory)
             new_entry.name[:len(raw_name)] = raw_name
             new_entry.name_len_bytes = len(raw_name)
             new_entry.object_type = CfbDirType.Stream if x.is_file else CfbDirType.Storage
             new_entry.color_flag = CfbDirColor.Red
-            new_entry.left_sibling_id = CfbSector.FreeSect
-            new_entry.right_sibling_id = CfbSector.FreeSect
-            new_entry.child_id = CfbSector.EndOfChain
+            new_entry.left_sibling_id = CfbSector.NoStream
+            new_entry.right_sibling_id = CfbSector.NoStream
+            new_entry.child_id = CfbSector.NoStream
             new_entry.size_bytes = len(self._raw_input_data[x.original_index]) if x.is_file else 0
             new_entry.sector_start = self._stream_start_sectors[x.original_index] if x.is_file else 0
 
             # Fixup parent item -- Root Entry
             if (x.parent_index is None):
-                if (self._directory[0].child_id == CfbSector.EndOfChain):
-                    print('Fixup root entry')
+                if (self._directory[0].child_id == CfbSector.NoStream):
+                    if VERBOSE: print('Fixup root entry')
                     self._directory[0].child_id = i + 1
                 else:
                     for j, y in enumerate(self._directory):
                         if j == 0: continue
-                        if (y.right_sibling_id == CfbSector.FreeSect):
-                            print(f'Fixup root sibling {j}')
+                        if (y.right_sibling_id == CfbSector.NoStream):
+                            if VERBOSE: print(f'Fixup root sibling {j}')
                             self._directory[j].right_sibling_id = i + 1
-                            new_entry.left_sibling_id = j + 1
+                            new_entry.left_sibling_id = j
                             break
 
             # Fixup parent item - user data
-            if (x.parent_index is not None) and (self._directory[x.parent_index+1].child_id == CfbSector.EndOfChain):
-                print('Fixup other entry')
+            if (x.parent_index is not None) and (self._directory[x.parent_index+1].child_id == CfbSector.NoStream):
+                if VERBOSE: print('Fixup other entry')
                 self._directory[x.parent_index+1].child_id = i + 1
 
             self._directory.append(new_entry)
@@ -273,9 +273,9 @@ class CFBWriter:
         new_entry.name_len_bytes = len(raw_name)
         new_entry.object_type = CfbDirType.RootStorage
         new_entry.color_flag = CfbDirColor.Black
-        new_entry.left_sibling_id = CfbSector.FreeSect
-        new_entry.right_sibling_id = CfbSector.FreeSect
-        new_entry.child_id = CfbSector.EndOfChain # not supporting MINISTREAM initially, which would be pointed to here
+        new_entry.left_sibling_id = CfbSector.NoStream
+        new_entry.right_sibling_id = CfbSector.NoStream
+        new_entry.child_id = CfbSector.NoStream # not supporting MINISTREAM initially, which would be pointed to here
         new_entry.clsid = (ctypes.c_byte * 16).from_buffer_copy(self._root_clsid.bytes)
         return new_entry
 
