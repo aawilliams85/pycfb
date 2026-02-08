@@ -239,7 +239,7 @@ class CFBWriter:
             new_entry.right_sibling_id = CfbSector.NoStream
             new_entry.child_id = CfbSector.NoStream
             new_entry.size_bytes = len(self._raw_input_data[x.original_index]) if x.is_file else 0
-            new_entry.sector_start = self._stream_start_sectors[x.original_index] if x.is_file else 0
+            new_entry.sector_start = self._stream_start_sectors[x.original_index] - 1 if x.is_file else 0
 
             # Fixup parent item -- Root Entry
             if (x.parent_index is None):
@@ -309,13 +309,8 @@ class CFBWriter:
 
             offset = self._next_freesect_offset
             sector = offset // self._sector_size_bytes
-            #self._update_fat_by_index(self._next_fat, sector)
             if (x > 0): self._update_fat_by_index(self._next_fat - 1, self._next_fat)
             self._update_fat_by_index(self._next_fat, CfbSector.EndOfChain)
             view[offset : offset + self._sector_size_bytes] = chunk
             self._increment_next_fat()
             self._increment_next_freesect()
-
-        # Mark this file's end-of-chain
-        #self._update_fat_by_index(self._next_fat, CfbSector.EndOfChain)
-        #self._increment_next_fat()
