@@ -263,6 +263,15 @@ class CFBWriter:
             self._directory.append(new_entry)
             self._increment_next_directory()
 
+        while (self._next_directory != 0):
+            new_entry = cDirEntry.from_buffer(self._data, self._next_freesect_offset + self._next_directory)
+            new_entry.object_type = CfbDirType.Unallocated
+            new_entry.left_sibling_id = CfbSector.NoStream
+            new_entry.right_sibling_id = CfbSector.NoStream
+            new_entry.child_id = CfbSector.NoStream
+            self._directory.append(new_entry)
+            self._increment_next_directory()
+        
         self._increment_next_fat()
         self._increment_next_freesect()
             
