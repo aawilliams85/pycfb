@@ -37,13 +37,14 @@ class CFBWriter:
         self._data = bytearray(self._calc_total_size_bytes())
         self._allocate_header()
         self._allocate_fat()
+        self._allocate_minifat()
         self._allocate_difat()
         self._update_difat()
 
         self._stream_start_sectors: list[int] = []
         for stream in self._raw_input_data:
             self._stream_start_sectors.append(self._next_freesect_number)
-            self._write_stream(stream)
+            self._write_stream_to_fat(stream)
 
         self._allocate_directory()
         self._update_header()
@@ -56,6 +57,16 @@ class CFBWriter:
     def _increment_next_fat(self):
         # Used to track the next available FAT entry in the file
         self._next_fat += 1
+
+    def _increment_next_minifat(self):
+        # Used to track the next available MINIFAT entry in the file
+        self._next_minifat += 1
+        if ((self._next_minifat * SIZE_FAT_ENTRY_BYTES) % self._sector_size_bytes) == 0:
+            self._next_minifat = 0
+            self._update_fat_by_index(self._next_fat, self._next_freesect_offset // self._sector_size_bytes)
+            self._increment_next_fat()
+            self._increment_next_freesect()
+            self._update_fat_by_index(self._next_fat, CfbSector.EndOfChain)
 
     def _increment_next_directory(self):
         # Used to track the next available directory entry in a sector
@@ -107,14 +118,19 @@ class CFBWriter:
         self._header.sector_start_directory = self._get_sector_number(self._directory[0])
         self._header.transaction_signature = 0
         self._header.mini_cutoff_size = SIZE_MINISTREAM_CUTOFF_BYTES
-        self._header.sector_start_minifat = CfbSector.EndOfChain # not supporting MINISTREAM initially so MINIFAT is not needed
-        self._header.sector_count_minifat = self._calc_size_minifat_sectors()
+
+        if (len(self._minifat) > 0):
+            self._header.sector_start_minifat = self._get_sector_number(self._minifat[0])
+            self._header.sector_count_minifat = len(self._minifat)
+        else:
+            self._header.sector_start_minifat = CfbSector.EndOfChain
+            self._header.sector_count_minifat = 0
 
         if (len(self._difat) > 0):
             self._header.sector_start_difat = self._get_sector_number(self._difat[0])
             self._header.sector_count_difat = len(self._difat)
         else:
-            self._header.sector_start_difat = CfbSector.EndOfChain # Until DIFAT needs to be expanded, it ends with the header entries
+            self._header.sector_start_difat = CfbSector.EndOfChain
             self._header.sector_count_difat = 0
 
     ###########################################################################
@@ -198,6 +214,47 @@ class CFBWriter:
         if VERBOSE: print(f'Setting FAT {index} to {value:08X} at sector {sector_idx} entry {entry_idx}')
         self._fat[sector_idx].entries[entry_idx] = value
         if VERBOSE: print('Success')
+
+    ###########################################################################
+    # MINIFAT Logic
+    ###########################################################################
+    def _calc_size_ministream_sectors_by_file(self) -> list[int]:
+        sectors = []
+        for stream in self._raw_input_data:
+            if len(stream) < SIZE_MINISTREAM_CUTOFF_BYTES:
+                sectors.append(math.ceil(len(stream)/self._sector_size_ministream_bytes))
+            else:
+                sectors.append(0)
+        return sectors
+
+    def _calc_size_ministream_sectors(self) -> int:
+        return sum(self._calc_size_ministream_sectors_by_file())
+
+    def _calc_size_minifat_sectors(self) -> int:
+        return math.ceil(self._calc_size_ministream_sectors() * SIZE_FAT_ENTRY_BYTES/self._sector_size_bytes)
+
+    def _allocate_minifat(self):
+        self._minifat: list[cFatSector] = []
+        for x in range(self._calc_size_minifat_sectors()):
+            new_sector = cFatSector.from_buffer(self._data, self._next_freesect_offset)
+            for y in range(self._fat_entries_per_sector): new_sector.entries[y] = CfbSector.FreeSect
+            self._minifat.append(new_sector)
+            self._update_fat_by_index(self._next_fat, CfbSector.EndOfChain)
+
+            # Chain the previous MINIFAT sector to this one
+            if (x > 0): self._update_fat_by_index(self._next_fat - 1, self._get_sector_number(new_sector))
+            
+            self._increment_next_fat()
+            self._increment_next_freesect()
+
+    def _update_minifat_by_index(self, index: int, value: int):
+        if VERBOSE: print(f'Index: {index}, Value: {value:08X}')
+        sector_idx = index // self._fat_entries_per_sector
+        entry_idx = index % self._fat_entries_per_sector
+        if VERBOSE: print(f'Setting MINIFAT {index} to {value:08X} at sector {sector_idx} entry {entry_idx}')
+        self._minifat[sector_idx].entries[entry_idx] = value
+        if VERBOSE: print('Success')
+
 
     ###########################################################################
     # Directory Logic
@@ -291,14 +348,6 @@ class CFBWriter:
     ###########################################################################
     # User File Logic
     ###########################################################################
-    def _calc_size_ministream_sectors(self) -> int:
-        # Not supporting MINISTREAM initially
-        return 0
-
-    def _calc_size_minifat_sectors(self) -> int:
-        # Not supporting MINIFAT initially
-        return 0
-
     def _calc_size_file_sectors_by_file(self) -> list[int]:
         sectors = []
         for stream in self._raw_input_data: sectors.append(math.ceil(len(stream)/self._sector_size_bytes))
@@ -307,7 +356,7 @@ class CFBWriter:
     def _calc_size_file_sectors(self) -> int:
         return sum(self._calc_size_file_sectors_by_file())
 
-    def _write_stream(self, stream_data: bytes):
+    def _write_stream_to_fat(self, stream_data: bytes):
         view = memoryview(self._data)
         stream_size_sectors = math.ceil(len(stream_data) / self._sector_size_bytes)
         
@@ -323,3 +372,14 @@ class CFBWriter:
             view[offset : offset + self._sector_size_bytes] = chunk
             self._increment_next_fat()
             self._increment_next_freesect()
+    
+    def _write_stream_to_minifat(self, stream_data: bytes):
+        view = memoryview(self._data)
+        stream_size_sectors = math.ceil(len(stream_data) / self._sector_size_ministream_bytes)
+
+        for x in range(stream_size_sectors):
+            start = x * self._sector_size_ministream_bytes
+            chunk = stream_data[start : start + self._sector_size_ministream_bytes]
+            if len(chunk) < self._sector_size_ministream_bytes: chunk = chunk.ljust(self._sector_size_ministream_bytes, b'\x00')
+
+            offset = self._next_freesect_offset
