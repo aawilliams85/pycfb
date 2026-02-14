@@ -18,7 +18,7 @@ class pycfb_tests(unittest.TestCase):
     def test_write_cfb(self):
         print('')
         for path1 in glob.glob(os.path.join(LOCAL_INPUT_PATH, '*')):
-            #print(path1)
+            print(path1)
             
             names: list[str] = []
             paths: list[str] = []
@@ -29,7 +29,7 @@ class pycfb_tests(unittest.TestCase):
                 relative_path = os.path.relpath(path2, path1)
                 if relative_path == None: return
 
-                print(f'Name: {os.path.basename(path2)}, Path: {relative_path}, Size: {os.path.getsize(path2)}')
+                #print(f'Name: {os.path.basename(path2)}, Path: {relative_path}, Size: {os.path.getsize(path2)}')
                 names.append(os.path.basename(path2))
                 paths.append(relative_path)
                 sizes.append(os.path.getsize(path2))
