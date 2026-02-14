@@ -4,7 +4,7 @@ HEADER_CLSID_NULL = 0x00000000000000000000000000000000  # Null ClassID
 HEADER_VERSION_MAJOR = 0x0003                           #
 HEADER_VERSION_MINOR = 0x003E                           #
 HEADER_BYTE_ORDER = 0xFFFE                              # Little Endian byte-order mark
-HEADER_DIFAT_COUNT = 109                                # The first 109 entries of DIFAT are always in the header
+HEADER_DIFAT_COUNT = 109                                # Even for 4096-byte sectors
 
 # Bit shifts
 SHIFT_MINISECTOR_BITS = 0x0006  # 64 byte

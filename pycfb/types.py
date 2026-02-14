@@ -1,8 +1,8 @@
 import ctypes
 from dataclasses import dataclass
-from typing import Optional, List
+from typing import Optional
 
-class cHeader(ctypes.Structure):
+class Header(ctypes.Structure):
     _pack_ = 1
     _fields_ = [
         ("signature", ctypes.c_uint64),
@@ -22,7 +22,7 @@ class cHeader(ctypes.Structure):
         ("sector_count_minifat", ctypes.c_uint32),
         ("sector_start_difat", ctypes.c_uint32),
         ("sector_count_difat", ctypes.c_uint32),
-        ("sector_data_difat", ctypes.c_uint32 * 109) 
+        ("sector_data_difat", ctypes.c_uint32 * 109)
     ]
 
     # VSCode type hints
@@ -45,14 +45,14 @@ class cHeader(ctypes.Structure):
     sector_count_difat: int
     sector_data_difat: ctypes.Array[ctypes.c_uint32]
 
-class cFatSector(ctypes.Structure):
+class FatSector(ctypes.Structure):
     _pack_ = 1
     _fields_ = [("entries", ctypes.c_uint32 * 128)]
 
     # VSCode type hints
     entries: ctypes.Array[ctypes.c_uint32]
 
-class cDifatSector(ctypes.Structure):
+class DifatSector(ctypes.Structure):
     _pack_ = 1
     _fields_ = [
         ("entries", ctypes.c_uint32 * 127),
@@ -63,7 +63,7 @@ class cDifatSector(ctypes.Structure):
     entries: ctypes.Array[ctypes.c_uint32]
     next_difat: int
 
-class cDirEntry(ctypes.Structure):
+class DirEntry(ctypes.Structure):
     _pack_ = 1
     _fields_ = [
         ("name", ctypes.c_ubyte * 64),

@@ -25,16 +25,20 @@ class CFBWriter:
         # Calculate sector sizes
         self._sector_size_bytes = 2**(SHIFT_SECTOR_BITS_V3)
         self._sector_size_ministream_bytes = 2**(SHIFT_MINISECTOR_BITS)
-        self._fat_entries_per_sector = (self._sector_size_bytes // SIZE_FAT_ENTRY_BYTES)
+        self._fat_entries_per_sector = self._sector_size_bytes // SIZE_FAT_ENTRY_BYTES
         self._difat_entries_per_sector = (self._sector_size_bytes // SIZE_DIFAT_ENTRY_BYTES) - 1
+
+        # Helpers
         self._next_freesect_offset = 0x00000000
         self._next_freesect_number = 0
         self._next_fat = 0
+        self._next_minifat = 0
+        self._next_directory = 0
 
         ###########################################################################
-        # Initialize binary structure            
+        # Initialize binary structure
         ###########################################################################
-        self._data = bytearray(self._calc_total_size_bytes())
+        self.data = bytearray(self._calc_total_size_bytes())
         self._minidata = bytearray(self._calc_ministream_size_bytes())
         self._allocate_header()
         self._allocate_fat()
@@ -60,12 +64,6 @@ class CFBWriter:
     def _increment_next_minifat(self):
         # Used to track the next available MINIFAT entry in the file
         self._next_minifat += 1
-        #if ((self._next_minifat * SIZE_FAT_ENTRY_BYTES) % self._sector_size_bytes) == 0:
-        #    self._next_minifat = 0
-        #    self._update_fat_by_index(self._next_fat, self._next_freesect_offset // self._sector_size_bytes)
-        #    self._increment_next_fat()
-        #    self._increment_next_freesect()
-        #    self._update_fat_by_index(self._next_fat, CfbSector.EndOfChain)
 
     def _increment_next_directory(self):
         # Used to track the next available directory entry in a sector
@@ -75,7 +73,7 @@ class CFBWriter:
             self._update_fat_by_index(self._next_fat, self._next_freesect_offset // self._sector_size_bytes)
             self._increment_next_fat()
             self._increment_next_freesect()
-            self._update_fat_by_index(self._next_fat, CfbSector.EndOfChain)
+            self._update_fat_by_index(self._next_fat, Sector.ENDOFCHAIN)
 
     def _calc_total_size_bytes(self) -> int:
         total_sectors = 1 # Header
@@ -85,12 +83,12 @@ class CFBWriter:
         total_sectors += self._calc_size_file_sectors()
         total_sectors += self._calc_size_minifat_sectors()
         total_sectors += math.ceil(self._calc_ministream_size_bytes()/self._sector_size_bytes)
-        return (total_sectors * self._sector_size_bytes)
-    
+        return total_sectors * self._sector_size_bytes
+
     def _get_sector_offset(self, sector: ctypes.Structure) -> int:
-        base_address = ctypes.addressof(ctypes.c_char.from_buffer(self._data))
+        base_address = ctypes.addressof(ctypes.c_char.from_buffer(self.data))
         sector_address = ctypes.addressof(sector)
-        return (sector_address - base_address)
+        return sector_address - base_address
 
     def _get_sector_number(self, sector: ctypes.Structure) -> int:
         sector_offset = self._get_sector_offset(sector)
@@ -101,12 +99,11 @@ class CFBWriter:
     # Header Logic
     ###########################################################################
     def _allocate_header(self):
-        self._header = cHeader.from_buffer(self._data, self._next_freesect_offset)
+        self._header = Header.from_buffer(self.data, self._next_freesect_offset)
         self._increment_next_freesect()
 
     def _update_header(self):
         self._header.signature = HEADER_SIGNATURE
-        #self._header.clsid = HEADER_CLSID_NULL
         self._header.version_minor = HEADER_VERSION_MINOR
         self._header.version_major = HEADER_VERSION_MAJOR
         self._header.byte_order = HEADER_BYTE_ORDER
@@ -118,18 +115,18 @@ class CFBWriter:
         self._header.transaction_signature = 0
         self._header.mini_cutoff_size = SIZE_MINISTREAM_CUTOFF_BYTES
 
-        if (len(self._minifat) > 0):
+        if len(self._minifat) > 0:
             self._header.sector_start_minifat = self._get_sector_number(self._minifat[0])
             self._header.sector_count_minifat = len(self._minifat)
         else:
-            self._header.sector_start_minifat = CfbSector.EndOfChain
+            self._header.sector_start_minifat = Sector.ENDOFCHAIN
             self._header.sector_count_minifat = 0
 
-        if (len(self._difat) > 0):
+        if len(self._difat) > 0:
             self._header.sector_start_difat = self._get_sector_number(self._difat[0])
             self._header.sector_count_difat = len(self._difat)
         else:
-            self._header.sector_start_difat = CfbSector.EndOfChain
+            self._header.sector_start_difat = Sector.ENDOFCHAIN
             self._header.sector_count_difat = 0
 
     ###########################################################################
@@ -139,27 +136,28 @@ class CFBWriter:
         return self._calc_size_fat_sectors() + 1 # Add one for end-of-chain ???
 
     def _calc_size_difat_sectors(self) -> int:
-        # The DIFAT needs to allocate space for the FAT if it exceeds the 109 entries available in the header
+        # The DIFAT needs to allocate space for the FAT if it exceeds the 109
+        # entries available in the header
         difat_entries = self._calc_size_difat_entries()
         difat_size_bytes = (difat_entries - HEADER_DIFAT_COUNT) * SIZE_DIFAT_ENTRY_BYTES
-        if (difat_size_bytes < 0): difat_size_bytes = 0
+        difat_size_bytes = max(difat_size_bytes, 0)
         difat_size_sectors = math.ceil(difat_size_bytes / self._sector_size_bytes)
         return difat_size_sectors
 
     def _allocate_difat(self):
-        self._difat: list[cDifatSector] = []
+        self._difat: list[DifatSector] = []
         for x in range(self._calc_size_difat_sectors()):
             # Initialize the next DIFAT sector
-            new_sector = cDifatSector.from_buffer(self._data, self._next_freesect_offset)
-            for y in range(self._difat_entries_per_sector): new_sector.entries[y] = CfbSector.FreeSect
-            new_sector.next_difat = CfbSector.EndOfChain
+            new_sector = DifatSector.from_buffer(self.data, self._next_freesect_offset)
+            for y in range(self._difat_entries_per_sector): new_sector.entries[y] = Sector.FREESECT
+            new_sector.next_difat = Sector.ENDOFCHAIN
 
             # Chain the previous DIFAT sector to this one
             if (x > 0): self._difat[x-1].next_difat = self._get_sector_number(new_sector)
 
             # Add it to the DIFAT list and update FAT to mark this sector as DIFSECT
             self._difat.append(new_sector)
-            self._update_fat_by_index(self._get_sector_number(new_sector), CfbSector.DifSect)
+            self._update_fat_by_index(self._get_sector_number(new_sector), Sector.DIFSECT)
             self._increment_next_fat()
             self._increment_next_freesect()
 
@@ -167,7 +165,7 @@ class CFBWriter:
         for x in range(len(self._fat)): self._update_difat_entry(x, self._get_sector_number(self._fat[x]))
         header_excess = HEADER_DIFAT_COUNT - len(self._fat)
         if (header_excess > 0):
-            for x in range(header_excess): self._update_difat_entry(len(self._fat) + x, CfbSector.FreeSect)
+            for x in range(header_excess): self._update_difat_entry(len(self._fat) + x, Sector.FREESECT)
 
     def _update_difat_entry(self, index: int, value: int):
         if (index < HEADER_DIFAT_COUNT):
@@ -197,12 +195,12 @@ class CFBWriter:
         return fat_size_sectors
 
     def _allocate_fat(self):
-        self._fat: list[cFatSector] = []
+        self._fat: list[FatSector] = []
         for x in range(self._calc_size_fat_sectors()):
-            new_sector = cFatSector.from_buffer(self._data, self._next_freesect_offset)
-            for y in range(self._fat_entries_per_sector): new_sector.entries[y] = CfbSector.FreeSect
+            new_sector = FatSector.from_buffer(self.data, self._next_freesect_offset)
+            for y in range(self._fat_entries_per_sector): new_sector.entries[y] = Sector.FREESECT
             self._fat.append(new_sector)
-            self._update_fat_by_index(x,CfbSector.FatSect)
+            self._update_fat_by_index(x,Sector.FATSECT)
             self._increment_next_fat()
             self._increment_next_freesect()
 
@@ -236,13 +234,13 @@ class CFBWriter:
         return math.ceil(self._calc_size_ministream_sectors() * SIZE_FAT_ENTRY_BYTES/self._sector_size_bytes)
 
     def _allocate_minifat(self):
-        self._minifat: list[cFatSector] = []
+        self._minifat: list[FatSector] = []
         self._next_minifat = 0
         for x in range(self._calc_size_minifat_sectors()):
-            new_sector = cFatSector.from_buffer(self._data, self._next_freesect_offset)
-            for y in range(self._fat_entries_per_sector): new_sector.entries[y] = CfbSector.FreeSect
+            new_sector = FatSector.from_buffer(self.data, self._next_freesect_offset)
+            for y in range(self._fat_entries_per_sector): new_sector.entries[y] = Sector.FREESECT
             self._minifat.append(new_sector)
-            self._update_fat_by_index(self._next_fat, CfbSector.EndOfChain)
+            self._update_fat_by_index(self._next_fat, Sector.ENDOFCHAIN)
 
             # Chain the previous MINIFAT sector to this one
             if (x > 0): self._update_fat_by_index(self._next_fat - 1, self._get_sector_number(new_sector))
@@ -265,7 +263,7 @@ class CFBWriter:
     def _calc_size_directory_entries(self) -> int:
         # The directory tree includes a Root Entry, one entry for each file, and one entry for each folder.
         file_count = len(self._raw_input_names)
-        folder_count = len(GetUniqueSubdirs(self._raw_input_paths))
+        folder_count = len(get_unique_subdirs(self._raw_input_paths))
         return (file_count + folder_count + 1) # Adding one for Root Directory
 
     def _calc_size_directory_sectors(self) -> int:
@@ -276,28 +274,28 @@ class CFBWriter:
 
     def _allocate_directory(self):
         # Initialize directory list
-        self._directory: list[cDirEntry] = []
+        self._directory: list[DirEntry] = []
         self._next_directory = 0
 
         # Root Entry
         self._directory.append(self._allocate_directory_root())
-        self._update_fat_by_index(self._next_fat, CfbSector.EndOfChain)
+        self._update_fat_by_index(self._next_fat, Sector.ENDOFCHAIN)
         self._increment_next_directory()
 
         # Storage (folder) and stream (file) entries
-        dirs = GetFileTree(self._raw_input_paths)
+        dirs = get_file_tree(self._raw_input_paths)
         for i, x in enumerate(dirs):
             # Create this item
             if VERBOSE: print(x)
             raw_name = f'{x.name[:31]}\x00'.encode('utf-16-le') # Truncating name for now
-            new_entry = cDirEntry.from_buffer(self._data, self._next_freesect_offset + self._next_directory)
+            new_entry = DirEntry.from_buffer(self.data, self._next_freesect_offset + self._next_directory)
             new_entry.name[:len(raw_name)] = raw_name
             new_entry.name_len_bytes = len(raw_name)
-            new_entry.object_type = CfbDirType.Stream if x.is_file else CfbDirType.Storage
-            new_entry.color_flag = CfbDirColor.Red
-            new_entry.left_sibling_id = CfbSector.NoStream
-            new_entry.right_sibling_id = CfbSector.NoStream
-            new_entry.child_id = CfbSector.NoStream
+            new_entry.object_type = DirType.STREAM if x.is_file else DirType.STORAGE
+            new_entry.color_flag = DirColor.RED
+            new_entry.left_sibling_id = Sector.NOSTREAM
+            new_entry.right_sibling_id = Sector.NOSTREAM
+            new_entry.child_id = Sector.NOSTREAM
             new_entry.size_bytes = len(self._raw_input_data[x.original_index]) if x.is_file else 0
             if new_entry.size_bytes >= SIZE_MINISTREAM_CUTOFF_BYTES:
                 new_entry.sector_start = self._stream_start_sectors[x.original_index] - 1 if x.is_file else 0
@@ -306,20 +304,20 @@ class CFBWriter:
 
             # Fixup parent item -- Root Entry
             if (x.parent_index is None):
-                if (self._directory[0].child_id == CfbSector.NoStream):
+                if (self._directory[0].child_id == Sector.NOSTREAM):
                     if VERBOSE: print('Fixup root entry')
                     self._directory[0].child_id = i + 1
                 else:
                     for j, y in enumerate(self._directory):
                         if j == 0: continue
-                        if (y.right_sibling_id == CfbSector.NoStream):
+                        if (y.right_sibling_id == Sector.NOSTREAM):
                             if VERBOSE: print(f'Fixup root sibling {j}')
                             self._directory[j].right_sibling_id = i + 1
                             new_entry.left_sibling_id = j
                             break
 
             # Fixup parent item - user data
-            if (x.parent_index is not None) and (self._directory[x.parent_index+1].child_id == CfbSector.NoStream):
+            if (x.parent_index is not None) and (self._directory[x.parent_index+1].child_id == Sector.NOSTREAM):
                 if VERBOSE: print('Fixup other entry')
                 self._directory[x.parent_index+1].child_id = i + 1
 
@@ -327,32 +325,32 @@ class CFBWriter:
             self._increment_next_directory()
 
         while (self._next_directory != 0):
-            new_entry = cDirEntry.from_buffer(self._data, self._next_freesect_offset + self._next_directory)
-            new_entry.object_type = CfbDirType.Unallocated
-            new_entry.left_sibling_id = CfbSector.NoStream
-            new_entry.right_sibling_id = CfbSector.NoStream
-            new_entry.child_id = CfbSector.NoStream
+            new_entry = DirEntry.from_buffer(self.data, self._next_freesect_offset + self._next_directory)
+            new_entry.object_type = DirType.UNALLOCATED
+            new_entry.left_sibling_id = Sector.NOSTREAM
+            new_entry.right_sibling_id = Sector.NOSTREAM
+            new_entry.child_id = Sector.NOSTREAM
             self._directory.append(new_entry)
             self._increment_next_directory()
         
         self._increment_next_fat()
         self._increment_next_freesect()
             
-    def _allocate_directory_root(self) -> cDirEntry:
+    def _allocate_directory_root(self) -> DirEntry:
         raw_name = 'Root Entry\x00'.encode('utf-16-le')
-        new_entry = cDirEntry.from_buffer(self._data, self._next_freesect_offset + self._next_directory)
+        new_entry = DirEntry.from_buffer(self.data, self._next_freesect_offset + self._next_directory)
         new_entry.name[:len(raw_name)] = raw_name
         new_entry.name_len_bytes = len(raw_name)
-        new_entry.object_type = CfbDirType.RootStorage
-        new_entry.color_flag = CfbDirColor.Black
-        new_entry.left_sibling_id = CfbSector.NoStream
-        new_entry.right_sibling_id = CfbSector.NoStream
+        new_entry.object_type = DirType.ROOTSTORAGE
+        new_entry.color_flag = DirColor.BLACK
+        new_entry.left_sibling_id = Sector.NOSTREAM
+        new_entry.right_sibling_id = Sector.NOSTREAM
 
         if len(self._minifat) > 0:
             new_entry.sector_start = self._ministream_start - 1
             new_entry.size_bytes = math.ceil(len(self._minidata)/self._sector_size_bytes) * self._sector_size_bytes
 
-        new_entry.child_id = CfbSector.NoStream
+        new_entry.child_id = Sector.NOSTREAM
         new_entry.clsid = (ctypes.c_byte * 16).from_buffer_copy(self._root_clsid.bytes)
         return new_entry
 
@@ -362,7 +360,6 @@ class CFBWriter:
     def _calc_size_file_sectors_by_file(self) -> list[int]:
         sectors = []
         for stream in self._raw_input_data:
-            #sectors.append(math.ceil(len(stream)/self._sector_size_bytes))
             if len(stream) >= SIZE_MINISTREAM_CUTOFF_BYTES:
                 sectors.append(math.ceil(len(stream)/self._sector_size_bytes))
             else:
@@ -373,7 +370,7 @@ class CFBWriter:
         return sum(self._calc_size_file_sectors_by_file())
 
     def _write_stream_to_fat(self, stream_data: bytes):
-        view = memoryview(self._data)
+        view = memoryview(self.data)
         stream_size_sectors = math.ceil(len(stream_data) / self._sector_size_bytes)
         
         for x in range(stream_size_sectors):
@@ -384,7 +381,7 @@ class CFBWriter:
             offset = self._next_freesect_offset
             sector = offset // self._sector_size_bytes
             if (x > 0): self._update_fat_by_index(self._next_fat - 1, self._next_fat)
-            self._update_fat_by_index(self._next_fat, CfbSector.EndOfChain)
+            self._update_fat_by_index(self._next_fat, Sector.ENDOFCHAIN)
             view[offset : offset + self._sector_size_bytes] = chunk
             self._increment_next_fat()
             self._increment_next_freesect()
@@ -399,8 +396,8 @@ class CFBWriter:
             if len(chunk) < self._sector_size_ministream_bytes: chunk = chunk.ljust(self._sector_size_ministream_bytes, b'\x00')
 
             offset = self._next_minifat * self._sector_size_ministream_bytes
-            self._update_minifat_by_index(self._next_minifat, CfbSector.EndOfChain) # wrong?
-            if (x > 0): self._update_minifat_by_index(self._next_minifat - 1, self._next_minifat) # wrong?
+            self._update_minifat_by_index(self._next_minifat, Sector.ENDOFCHAIN)
+            if (x > 0): self._update_minifat_by_index(self._next_minifat - 1, self._next_minifat)
             view[offset : offset + self._sector_size_ministream_bytes] = chunk
             self._increment_next_minifat()
 

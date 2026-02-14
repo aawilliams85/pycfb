@@ -3,7 +3,7 @@ from pathlib import Path
 
 from pycfb.types import *
 
-def GetUniqueSubdirs(paths: list[str]) -> list[str]:
+def get_unique_subdirs(paths: list[str]) -> list[str]:
     all_levels = set()
     for p in paths:
         for ancestor in Path(p).parents:
@@ -13,18 +13,14 @@ def GetUniqueSubdirs(paths: list[str]) -> list[str]:
                 all_levels.add(ancestor_str)
     return sorted(list(all_levels))
 
-def GetFileTree(paths: List[str]) -> List[FileTreeItem]:
+def get_file_tree(paths: list[str]) -> list[FileTreeItem]:
     visited = {}
-    
-    # 1. Deconstruct paths and identify all unique segments
     for idx, path in enumerate(paths):
         path = os.path.normpath(path)
         parts = path.split(os.sep)
-        
         for i in range(1, len(parts) + 1):
             segment = os.path.join(*parts[:i])
-            is_last_part = (i == len(parts))
-            
+            is_last_part = i == len(parts)
             if segment not in visited:
                 name = os.path.basename(segment)
                 is_file = is_last_part and ("." in name)
@@ -36,7 +32,7 @@ def GetFileTree(paths: List[str]) -> List[FileTreeItem]:
                 )
 
     sorted_items = sorted(
-        visited.values(), 
+        visited.values(),
         key=lambda x: (x.path.count(os.sep), x.path)
     )
     path_to_final_idx = {item.path: i for i, item in enumerate(sorted_items)}
