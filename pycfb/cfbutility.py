@@ -1,3 +1,4 @@
+from collections import defaultdict
 import math
 import uuid
 
@@ -7,6 +8,41 @@ from pycfb.types import *
 from pycfb.util import *
 
 VERBOSE = 0
+
+class CFBContext:
+    def __init__(
+        self,
+        stream_names: list[str],
+        stream_paths: list[str],
+        stream_data: list[str],
+        root_clsid: uuid.UUID
+    ):
+        self.stream_names = stream_names
+        self.stream_paths = stream_paths
+        self.stream_data = stream_data
+        self.root_clsid = root_clsid
+
+        self.data: bytearray
+        self.minidata: bytearray
+        self.header_mgr = None
+        self.fat_mgr = None
+        self.difat_mgr = None
+        self.dir_mgr = None
+        self.minifat_mgr = None
+
+class CFBHeaderManager:
+    def __init__(
+        self,
+        ctx: CFBContext
+    ):
+        self.ctx = ctx
+
+class CFBFatManager:
+    def __init__(
+        self,
+        ctx: CFBContext
+    ):
+        self.ctx = ctx
 
 class CFBWriter:
     def __init__(
@@ -21,6 +57,9 @@ class CFBWriter:
         self._raw_input_paths = stream_paths
         self._raw_input_data = stream_data
         self._root_clsid = root_clsid
+        self.ctx = CFBContext(stream_names, stream_paths, stream_data, root_clsid)
+        self.ctx.header_mgr = CFBHeaderManager(self.ctx)
+        self.ctx.fat_mgr = CFBFatManager(self.ctx)
 
         # Calculate sector sizes
         self._sector_size_bytes = 2**(SHIFT_SECTOR_BITS_V3)
@@ -38,7 +77,7 @@ class CFBWriter:
         ###########################################################################
         # Initialize binary structure
         ###########################################################################
-        self.data = bytearray(self._calc_total_size_bytes())
+        self.ctx.data = bytearray(self._calc_total_size_bytes())
         self._minidata = bytearray(self._calc_ministream_size_bytes())
         self._allocate_header()
         self._allocate_fat()
@@ -51,6 +90,10 @@ class CFBWriter:
 
         self._allocate_directory()
         self._update_header()
+
+    @property
+    def data(self):
+        return self.ctx.data
 
     def _increment_next_freesect(self):
         # Used to track the next available free sector in the file
@@ -86,7 +129,7 @@ class CFBWriter:
         return total_sectors * self._sector_size_bytes
 
     def _get_sector_offset(self, sector: ctypes.Structure) -> int:
-        base_address = ctypes.addressof(ctypes.c_char.from_buffer(self.data))
+        base_address = ctypes.addressof(ctypes.c_char.from_buffer(self.ctx.data))
         sector_address = ctypes.addressof(sector)
         return sector_address - base_address
 
@@ -99,7 +142,7 @@ class CFBWriter:
     # Header Logic
     ###########################################################################
     def _allocate_header(self):
-        self._header = Header.from_buffer(self.data, self._next_freesect_offset)
+        self._header = Header.from_buffer(self.ctx.data, self._next_freesect_offset)
         self._increment_next_freesect()
 
     def _update_header(self):
@@ -148,7 +191,7 @@ class CFBWriter:
         self._difat: list[DifatSector] = []
         for x in range(self._calc_size_difat_sectors()):
             # Initialize the next DIFAT sector
-            new_sector = DifatSector.from_buffer(self.data, self._next_freesect_offset)
+            new_sector = DifatSector.from_buffer(self.ctx.data, self._next_freesect_offset)
             for y in range(self._difat_entries_per_sector): new_sector.entries[y] = Sector.FREESECT
             new_sector.next_difat = Sector.ENDOFCHAIN
 
@@ -197,7 +240,7 @@ class CFBWriter:
     def _allocate_fat(self):
         self._fat: list[FatSector] = []
         for x in range(self._calc_size_fat_sectors()):
-            new_sector = FatSector.from_buffer(self.data, self._next_freesect_offset)
+            new_sector = FatSector.from_buffer(self.ctx.data, self._next_freesect_offset)
             for y in range(self._fat_entries_per_sector): new_sector.entries[y] = Sector.FREESECT
             self._fat.append(new_sector)
             self._update_fat_by_index(x,Sector.FATSECT)
@@ -237,7 +280,7 @@ class CFBWriter:
         self._minifat: list[FatSector] = []
         self._next_minifat = 0
         for x in range(self._calc_size_minifat_sectors()):
-            new_sector = FatSector.from_buffer(self.data, self._next_freesect_offset)
+            new_sector = FatSector.from_buffer(self.ctx.data, self._next_freesect_offset)
             for y in range(self._fat_entries_per_sector): new_sector.entries[y] = Sector.FREESECT
             self._minifat.append(new_sector)
             self._update_fat_by_index(self._next_fat, Sector.ENDOFCHAIN)
@@ -273,7 +316,6 @@ class CFBWriter:
         return directory_size_sectors
 
     def _allocate_directory(self):
-        # Initialize directory list
         self._directory: list[DirEntry] = []
         self._next_directory = 0
 
@@ -282,63 +324,78 @@ class CFBWriter:
         self._update_fat_by_index(self._next_fat, Sector.ENDOFCHAIN)
         self._increment_next_directory()
 
-        # Storage (folder) and stream (file) entries
         dirs = get_file_tree(self._raw_input_paths)
+        
+        # Storage and Stream entries
         for i, x in enumerate(dirs):
-            # Create this item
-            if VERBOSE: print(x)
-            raw_name = f'{x.name[:31]}\x00'.encode('utf-16-le') # Truncating name for now
-            new_entry = DirEntry.from_buffer(self.data, self._next_freesect_offset + self._next_directory)
+            raw_name = f'{x.name[:31]}\x00'.encode('utf-16-le')
+            new_entry = DirEntry.from_buffer(self.ctx.data, self._next_freesect_offset + self._next_directory)
+            
             new_entry.name[:len(raw_name)] = raw_name
             new_entry.name_len_bytes = len(raw_name)
             new_entry.object_type = DirType.STREAM if x.is_file else DirType.STORAGE
-            new_entry.color_flag = DirColor.RED
+            new_entry.color_flag = DirColor.BLACK # To start
             new_entry.left_sibling_id = Sector.NOSTREAM
             new_entry.right_sibling_id = Sector.NOSTREAM
             new_entry.child_id = Sector.NOSTREAM
-            new_entry.size_bytes = len(self._raw_input_data[x.original_index]) if x.is_file else 0
-            if new_entry.size_bytes >= SIZE_MINISTREAM_CUTOFF_BYTES:
-                new_entry.sector_start = self._stream_start_sectors[x.original_index] - 1 if x.is_file else 0
-            else:
-                new_entry.sector_start = self._stream_start_minisectors[x.original_index] if x.is_file else 0
-
-            # Fixup parent item -- Root Entry
-            if (x.parent_index is None):
-                if (self._directory[0].child_id == Sector.NOSTREAM):
-                    if VERBOSE: print('Fixup root entry')
-                    self._directory[0].child_id = i + 1
+            
+            if x.is_file:
+                new_entry.size_bytes = len(self._raw_input_data[x.original_index])
+                if new_entry.size_bytes >= SIZE_MINISTREAM_CUTOFF_BYTES:
+                    new_entry.sector_start = self._stream_start_sectors[x.original_index] - 1
                 else:
-                    for j, y in enumerate(self._directory):
-                        if j == 0: continue
-                        if (y.right_sibling_id == Sector.NOSTREAM):
-                            if VERBOSE: print(f'Fixup root sibling {j}')
-                            self._directory[j].right_sibling_id = i + 1
-                            new_entry.left_sibling_id = j
-                            break
-
-            # Fixup parent item - user data
-            if (x.parent_index is not None) and (self._directory[x.parent_index+1].child_id == Sector.NOSTREAM):
-                if VERBOSE: print('Fixup other entry')
-                self._directory[x.parent_index+1].child_id = i + 1
+                    new_entry.sector_start = self._stream_start_minisectors[x.original_index]
+            else:
+                new_entry.size_bytes = 0
+                new_entry.sector_start = 0
 
             self._directory.append(new_entry)
             self._increment_next_directory()
 
-        while (self._next_directory != 0):
-            new_entry = DirEntry.from_buffer(self.data, self._next_freesect_offset + self._next_directory)
-            new_entry.object_type = DirType.UNALLOCATED
-            new_entry.left_sibling_id = Sector.NOSTREAM
-            new_entry.right_sibling_id = Sector.NOSTREAM
-            new_entry.child_id = Sector.NOSTREAM
-            self._directory.append(new_entry)
-            self._increment_next_directory()
-        
-        self._increment_next_fat()
-        self._increment_next_freesect()
+        # Build tree hierarchy
+        children_map = defaultdict(list)
+        for i, x in enumerate(dirs):
+            parent_idx = -1 if x.parent_index is None else x.parent_index
+            children_map[parent_idx].append(i + 1)
+
+        def build_balanced_tree(indices, color=DirColor.BLACK):
+            """
+            Recursively builds a balanced binary tree.
+            Assigns Left/Right siblings and alternates Red/Black colors.
+            """
+            if not indices:
+                return Sector.NOSTREAM
+            
+            # Sort by name length, then uppercase
+            indices.sort(key=lambda idx: (len(dirs[idx-1].name), dirs[idx-1].name.upper()))            
+
+            mid = len(indices) // 2
+            current_node_idx = indices[mid]            
+            node = self._directory[current_node_idx]
+            node.color_flag = color
+            
+            # Build subtree
+            next_color = DirColor.RED if color == DirColor.BLACK else DirColor.BLACK            
+            node.left_sibling_id = build_balanced_tree(indices[:mid], next_color)
+            node.right_sibling_id = build_balanced_tree(indices[mid+1:], next_color)
+            
+            return current_node_idx
+
+        # Fix pointers
+        for parent_idx, children in children_map.items():
+            child_tree_root = build_balanced_tree(children, DirColor.BLACK)
+            
+            if parent_idx == -1:
+                self._directory[0].child_id = child_tree_root
+            else:
+                self._directory[parent_idx + 1].child_id = child_tree_root
+
+            self._increment_next_fat()
+            self._increment_next_freesect()
             
     def _allocate_directory_root(self) -> DirEntry:
         raw_name = 'Root Entry\x00'.encode('utf-16-le')
-        new_entry = DirEntry.from_buffer(self.data, self._next_freesect_offset + self._next_directory)
+        new_entry = DirEntry.from_buffer(self.ctx.data, self._next_freesect_offset + self._next_directory)
         new_entry.name[:len(raw_name)] = raw_name
         new_entry.name_len_bytes = len(raw_name)
         new_entry.object_type = DirType.ROOTSTORAGE
@@ -370,7 +427,7 @@ class CFBWriter:
         return sum(self._calc_size_file_sectors_by_file())
 
     def _write_stream_to_fat(self, stream_data: bytes):
-        view = memoryview(self.data)
+        view = memoryview(self.ctx.data)
         stream_size_sectors = math.ceil(len(stream_data) / self._sector_size_bytes)
         
         for x in range(stream_size_sectors):

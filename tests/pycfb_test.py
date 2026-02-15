@@ -16,7 +16,9 @@ class pycfb_tests(unittest.TestCase):
 
     def test_write_cfb(self):
         print('')
+        i = 0
         for path1 in glob.glob(os.path.join(LOCAL_INPUT_PATH, '*')):
+            i += 1
             print(path1)
             
             names: list[str] = []
@@ -37,7 +39,7 @@ class pycfb_tests(unittest.TestCase):
                     data.append(f.read())
 
             x = CFBWriter(stream_names=names, stream_paths=paths, stream_data=data, root_clsid=uuid.UUID('BE87C5E3-E3CB-4BAB-8427-578ECCE263F7'))
-            with open(os.path.join(LOCAL_OUTPUT_PATH, 'test.ole'), 'wb') as f:
+            with open(os.path.join(LOCAL_OUTPUT_PATH, f'test{i}.ole'), 'wb') as f:
                 f.write(x.data)
 
     def tearDown(self):
