@@ -20,7 +20,6 @@ class CFBTests(unittest.TestCase):
         for path1 in glob.glob(os.path.join(LOCAL_INPUT_PATH, '*')):
             i += 1
             print(path1)
-            
             names: list[str] = []
             paths: list[str] = []
             sizes: list[int] = []
