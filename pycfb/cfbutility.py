@@ -3,41 +3,15 @@ import math
 import uuid
 
 from pycfb.constants import *
+from pycfb.context import CFBContext
 from pycfb.enums import *
+from pycfb.header import CFBHeaderMgr
 from pycfb.types import *
 from pycfb.util import *
 
 VERBOSE = 0
 
-class CFBContext:
-    def __init__(
-        self,
-        stream_names: list[str],
-        stream_paths: list[str],
-        stream_data: list[str],
-        root_clsid: uuid.UUID
-    ):
-        self.stream_names = stream_names
-        self.stream_paths = stream_paths
-        self.stream_data = stream_data
-        self.root_clsid = root_clsid
-
-        self.data: bytearray
-        self.minidata: bytearray
-        self.header_mgr = None
-        self.fat_mgr = None
-        self.difat_mgr = None
-        self.dir_mgr = None
-        self.minifat_mgr = None
-
-class CFBHeaderManager:
-    def __init__(
-        self,
-        ctx: CFBContext
-    ):
-        self.ctx = ctx
-
-class CFBFatManager:
+class CFBFatMgr:
     def __init__(
         self,
         ctx: CFBContext
@@ -58,8 +32,8 @@ class CFBWriter:
         self._raw_input_data = stream_data
         self._root_clsid = root_clsid
         self.ctx = CFBContext(stream_names, stream_paths, stream_data, root_clsid)
-        self.ctx.header_mgr = CFBHeaderManager(self.ctx)
-        self.ctx.fat_mgr = CFBFatManager(self.ctx)
+        self.ctx.header_mgr = CFBHeaderMgr(self.ctx)
+        self.ctx.fat_mgr = CFBFatMgr(self.ctx)
 
         # Calculate sector sizes
         self._sector_size_bytes = 2**(SHIFT_SECTOR_BITS_V3)
@@ -68,18 +42,19 @@ class CFBWriter:
         self._difat_entries_per_sector = (self._sector_size_bytes // SIZE_DIFAT_ENTRY_BYTES) - 1
 
         # Helpers
-        self._next_freesect_offset = 0x00000000
-        self._next_freesect_number = 0
-        self._next_fat = 0
-        self._next_minifat = 0
-        self._next_directory = 0
+        self._next_freesect_offset = self.ctx.next_freesect_offset
+        self._next_freesect_number = self.ctx.next_freesect_number
+        self._next_fat = self.ctx.next_fat
+        self._next_minifat = self.ctx.next_minifat
+        self._next_directory = self.ctx.next_directory
 
         ###########################################################################
         # Initialize binary structure
         ###########################################################################
         self.ctx.data = bytearray(self._calc_total_size_bytes())
         self._minidata = bytearray(self._calc_ministream_size_bytes())
-        self._allocate_header()
+        self.ctx.header_mgr.allocate() # temporary while rearranging
+        self._increment_next_freesect()
         self._allocate_fat()
         self._allocate_minifat()
         self._allocate_difat()
@@ -89,7 +64,12 @@ class CFBWriter:
         self._allocate_stream()
 
         self._allocate_directory()
-        self._update_header()
+
+        self.ctx.minifat = self._minifat
+        self.ctx.fat = self._fat
+        self.ctx.directory = self._directory
+        self.ctx.difat = self._difat
+        self.ctx.header_mgr.update()
 
     @property
     def data(self):
@@ -141,36 +121,7 @@ class CFBWriter:
     ###########################################################################
     # Header Logic
     ###########################################################################
-    def _allocate_header(self):
-        self._header = Header.from_buffer(self.ctx.data, self._next_freesect_offset)
-        self._increment_next_freesect()
 
-    def _update_header(self):
-        self._header.signature = HEADER_SIGNATURE
-        self._header.version_minor = HEADER_VERSION_MINOR
-        self._header.version_major = HEADER_VERSION_MAJOR
-        self._header.byte_order = HEADER_BYTE_ORDER
-        self._header.sector_shift = SHIFT_SECTOR_BITS_V3
-        self._header.mini_sector_shift = SHIFT_MINISECTOR_BITS
-        self._header.sector_count_directory = 0 # Always zero for v3
-        self._header.sector_count_fat = self._calc_size_fat_sectors()
-        self._header.sector_start_directory = self._get_sector_number(self._directory[0])
-        self._header.transaction_signature = 0
-        self._header.mini_cutoff_size = SIZE_MINISTREAM_CUTOFF_BYTES
-
-        if len(self._minifat) > 0:
-            self._header.sector_start_minifat = self._get_sector_number(self._minifat[0])
-            self._header.sector_count_minifat = len(self._minifat)
-        else:
-            self._header.sector_start_minifat = Sector.ENDOFCHAIN
-            self._header.sector_count_minifat = 0
-
-        if len(self._difat) > 0:
-            self._header.sector_start_difat = self._get_sector_number(self._difat[0])
-            self._header.sector_count_difat = len(self._difat)
-        else:
-            self._header.sector_start_difat = Sector.ENDOFCHAIN
-            self._header.sector_count_difat = 0
 
     ###########################################################################
     # DIFAT Logic
@@ -213,7 +164,7 @@ class CFBWriter:
     def _update_difat_entry(self, index: int, value: int):
         if (index < HEADER_DIFAT_COUNT):
             if VERBOSE: print(f'Setting DIFAT {index} to {value:08X} at header entry {index}')
-            self._header.sector_data_difat[index] = value
+            self.ctx.header.sector_data_difat[index] = value
         else:
             index_remainder = index - HEADER_DIFAT_COUNT
             sector_idx = index_remainder // self._difat_entries_per_sector

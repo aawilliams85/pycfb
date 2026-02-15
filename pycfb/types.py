@@ -2,6 +2,8 @@ import ctypes
 from dataclasses import dataclass
 from typing import Optional
 
+from pycfb.constants import *
+
 class Header(ctypes.Structure):
     _pack_ = 1
     _fields_ = [
@@ -22,7 +24,7 @@ class Header(ctypes.Structure):
         ("sector_count_minifat", ctypes.c_uint32),
         ("sector_start_difat", ctypes.c_uint32),
         ("sector_count_difat", ctypes.c_uint32),
-        ("sector_data_difat", ctypes.c_uint32 * 109)
+        ("sector_data_difat", ctypes.c_uint32 * HEADER_DIFAT_COUNT)
     ]
 
     # VSCode type hints
