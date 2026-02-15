@@ -1,5 +1,3 @@
-import ctypes
-
 from pycfb.constants import *
 from pycfb.context import CFBContext
 from pycfb.enums import Sector
