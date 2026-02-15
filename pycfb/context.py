@@ -23,12 +23,10 @@ from pycfb.util import get_unique_subdirs
 class CFBContext:
     def __init__(
         self,
-        stream_names: list[str],
         stream_paths: list[str],
         stream_data: list[bytes],
         root_clsid: uuid.UUID
     ):
-        self.stream_names = stream_names
         self.stream_paths = stream_paths
         self.stream_data = stream_data
         self.root_clsid = root_clsid
@@ -70,14 +68,14 @@ class CFBContext:
         self.next_minifat = 0
         self.next_directory = 0
 
-    def _calc_total_size_bytes(self) -> int:
+    def calc_total_size_bytes(self) -> int:
         total_sectors = 1 # Header
         total_sectors += self.calc_difat_size_sectors()
         total_sectors += self.calc_fat_size_sectors()
-        total_sectors += self._calc_size_directory_sectors()
-        total_sectors += self._calc_size_file_sectors()
+        total_sectors += self.calc_dir_size_sectors()
+        total_sectors += self.calc_file_size_sectors()
         total_sectors += self.calc_minifat_size_sectors()
-        total_sectors += math.ceil(self._calc_ministream_size_bytes()/self.sector_size_bytes)
+        total_sectors += math.ceil(self.calc_ministream_size_bytes()/self.sector_size_bytes)
         return total_sectors * self.sector_size_bytes
 
     def inc_next_freesect(self):
@@ -103,23 +101,23 @@ class CFBContext:
             self.inc_next_freesect()
             self.fat_mgr.update(self.next_fat, Sector.ENDOFCHAIN)
 
-    def _get_sector_offset(self, sector: ctypes.Structure) -> int:
+    def get_sector_offset(self, sector: ctypes.Structure) -> int:
         base_address = ctypes.addressof(ctypes.c_char.from_buffer(self.data))
         sector_address = ctypes.addressof(sector)
         return sector_address - base_address
 
-    def get_sector_num(self, sector: ctypes.Structure) -> int:
-        sector_offset = self._get_sector_offset(sector)
+    def get_sector_number(self, sector: ctypes.Structure) -> int:
+        sector_offset = self.get_sector_offset(sector)
         sector_number = (sector_offset // self.sector_size_bytes) - 1
         return sector_number
 
-    def _calc_size_difat_entries(self) -> int:
+    def calc_difat_size_entries(self) -> int:
         return self.calc_fat_size_sectors() + 1 # Add one for end-of-chain ???
 
     def calc_difat_size_sectors(self) -> int:
         # The DIFAT needs to allocate space for the FAT if it exceeds the 109
         # entries available in the header
-        difat_entries = self._calc_size_difat_entries()
+        difat_entries = self.calc_difat_size_entries()
         difat_size_bytes = (difat_entries - HEADER_DIFAT_COUNT) * SIZE_DIFAT_ENTRY_BYTES
         difat_size_bytes = max(difat_size_bytes, 0)
         difat_size_sectors = math.ceil(difat_size_bytes / self.sector_size_bytes)
@@ -128,8 +126,8 @@ class CFBContext:
     def calc_fat_size_entries(self) -> int:
         # The FAT needs to allocate space for the directory and each file
         # including end-of-chains for each
-        fat_entries = self._calc_size_directory_sectors() + 1 # Add one for end-of-chain ???
-        for x in self._calc_size_file_sectors_by_file():
+        fat_entries = self.calc_dir_size_sectors() + 1 # Add one for end-of-chain ???
+        for x in self.calc_file_size_sectors_byfile():
             fat_entries += x + 1 # Add one for each end-of-chain
 
         # Include overhead for the FAT sectors themselves
@@ -142,18 +140,18 @@ class CFBContext:
         fat_size_sectors = math.ceil(fat_size_bytes / self.sector_size_bytes)
         return fat_size_sectors
 
-    def _calc_size_directory_entries(self) -> int:
+    def calc_dir_size_entries(self) -> int:
         # The directory tree includes a Root Entry, one entry for each file, and one entry for each folder.
-        file_count = len(self.stream_names)
+        file_count = len(self.stream_paths)
         folder_count = len(get_unique_subdirs(self.stream_paths))
         return file_count + folder_count + 1 # Adding one for Root Directory
 
-    def _calc_size_directory_sectors(self) -> int:
-        directory_size_bytes = self._calc_size_directory_entries() * SIZE_DIRECTORY_ENTRY_BYTES
+    def calc_dir_size_sectors(self) -> int:
+        directory_size_bytes = self.calc_dir_size_entries() * SIZE_DIRECTORY_ENTRY_BYTES
         directory_size_sectors = math.ceil(directory_size_bytes / self.sector_size_bytes)
         return directory_size_sectors
 
-    def _calc_size_file_sectors_by_file(self) -> list[int]:
+    def calc_file_size_sectors_byfile(self) -> list[int]:
         sectors = []
         for stream in self.stream_data:
             if len(stream) >= SIZE_MINISTREAM_CUTOFF_BYTES:
@@ -162,10 +160,10 @@ class CFBContext:
                 sectors.append(0)
         return sectors
 
-    def _calc_size_file_sectors(self) -> int:
-        return sum(self._calc_size_file_sectors_by_file())
+    def calc_file_size_sectors(self) -> int:
+        return sum(self.calc_file_size_sectors_byfile())
 
-    def _calc_size_ministream_sectors_by_file(self) -> list[int]:
+    def calc_file_size_minisectors_byfile(self) -> list[int]:
         sectors = []
         for stream in self.stream_data:
             if len(stream) < SIZE_MINISTREAM_CUTOFF_BYTES:
@@ -174,11 +172,11 @@ class CFBContext:
                 sectors.append(0)
         return sectors
 
-    def _calc_size_ministream_sectors(self) -> int:
-        return sum(self._calc_size_ministream_sectors_by_file())
+    def calc_ministream_size_minisectors(self) -> int:
+        return sum(self.calc_file_size_minisectors_byfile())
 
-    def _calc_ministream_size_bytes(self) -> int:
-        return self._calc_size_ministream_sectors() * self.minisector_size_bytes
+    def calc_ministream_size_bytes(self) -> int:
+        return self.calc_ministream_size_minisectors() * self.minisector_size_bytes
 
     def calc_minifat_size_sectors(self) -> int:
-        return math.ceil(self._calc_size_ministream_sectors() * SIZE_FAT_ENTRY_BYTES/self.sector_size_bytes)
+        return math.ceil(self.calc_ministream_size_minisectors() * SIZE_FAT_ENTRY_BYTES/self.sector_size_bytes)

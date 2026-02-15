@@ -20,16 +20,17 @@ class CFBDifatMgr:
 
             # Chain the previous DIFAT sector to this one
             if x > 0:
-                self.ctx.difat[x-1].next_difat = self.ctx.get_sector_num(new_sector)
+                self.ctx.difat[x-1].next_difat = self.ctx.get_sector_number(new_sector)
 
             # Add it to the DIFAT list and update FAT to mark this sector as DIFSECT
             self.ctx.difat.append(new_sector)
-            self.ctx.fat_mgr.update(self.ctx.get_sector_num(new_sector), Sector.DIFSECT)
+            self.ctx.fat_mgr.update(self.ctx.get_sector_number(new_sector), Sector.DIFSECT)
             self.ctx.inc_next_fat()
             self.ctx.inc_next_freesect()
 
-        for x in range(len(self.ctx.fat)):
-            self.update(x, self.ctx.get_sector_num(self.ctx.fat[x]))
+        for x, fat_entry in enumerate(self.ctx.fat):
+            self.update(x, self.ctx.get_sector_number(fat_entry))
+
         header_excess = HEADER_DIFAT_COUNT - len(self.ctx.fat)
         if header_excess > 0:
             for x in range(header_excess):

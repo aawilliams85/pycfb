@@ -31,19 +31,19 @@ class CFBHeaderMgr:
         self.ctx.header.mini_sector_shift = SHIFT_MINISECTOR_BITS
         self.ctx.header.sector_count_directory = 0 # Always zero for v3
         self.ctx.header.sector_count_fat = len(self.ctx.fat)
-        self.ctx.header.sector_start_directory = self.ctx.get_sector_num(self.ctx.directory[0])
+        self.ctx.header.sector_start_directory = self.ctx.get_sector_number(self.ctx.directory[0])
         self.ctx.header.transaction_signature = 0
         self.ctx.header.mini_cutoff_size = SIZE_MINISTREAM_CUTOFF_BYTES
 
         if len(self.ctx.minifat) > 0:
-            self.ctx.header.sector_start_minifat = self.ctx.get_sector_num(self.ctx.minifat[0])
+            self.ctx.header.sector_start_minifat = self.ctx.get_sector_number(self.ctx.minifat[0])
             self.ctx.header.sector_count_minifat = len(self.ctx.minifat)
         else:
             self.ctx.header.sector_start_minifat = Sector.ENDOFCHAIN
             self.ctx.header.sector_count_minifat = 0
 
         if len(self.ctx.difat) > 0:
-            self.ctx.header.sector_start_difat = self.ctx.get_sector_num(self.ctx.difat[0])
+            self.ctx.header.sector_start_difat = self.ctx.get_sector_number(self.ctx.difat[0])
             self.ctx.header.sector_count_difat = len(self.ctx.difat)
         else:
             self.ctx.header.sector_start_difat = Sector.ENDOFCHAIN

@@ -19,7 +19,7 @@ class CFBMinifatMgr:
 
             # Chain the previous MINIFAT sector to this one
             if x > 0:
-                self.ctx.fat_mgr.update(self.ctx.next_fat - 1, self.ctx.get_sector_num(new_sector))
+                self.ctx.fat_mgr.update(self.ctx.next_fat - 1, self.ctx.get_sector_number(new_sector))
 
             self.ctx.inc_next_fat()
             self.ctx.inc_next_freesect()

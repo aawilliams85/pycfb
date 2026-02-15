@@ -10,7 +10,7 @@ LOCAL_BASE_PATH = os.path.abspath(os.path.dirname(__file__))
 LOCAL_INPUT_PATH = os.path.join(LOCAL_BASE_PATH, 'input_files')
 LOCAL_OUTPUT_PATH = os.path.join(LOCAL_BASE_PATH, 'output_files')
 
-class pycfb_tests(unittest.TestCase):
+class CFBTests(unittest.TestCase):
     def setUp(self):
         pass
 
@@ -31,14 +31,17 @@ class pycfb_tests(unittest.TestCase):
                 if relative_path is None:
                     return
 
-                #print(f'Name: {os.path.basename(path2)}, Path: {relative_path}, Size: {os.path.getsize(path2)}')
                 names.append(os.path.basename(path2))
                 paths.append(relative_path)
                 sizes.append(os.path.getsize(path2))
                 with open(path2, 'rb') as f:
                     data.append(f.read())
 
-            x = CFBWriter(stream_names=names, stream_paths=paths, stream_data=data, root_clsid=uuid.UUID('BE87C5E3-E3CB-4BAB-8427-578ECCE263F7'))
+            x = CFBWriter(
+                stream_paths=paths,
+                stream_data=data,
+                root_clsid=uuid.UUID('BE87C5E3-E3CB-4BAB-8427-578ECCE263F7')
+            )
             with open(os.path.join(LOCAL_OUTPUT_PATH, f'test{i}.ole'), 'wb') as f:
                 f.write(x.data)
 
