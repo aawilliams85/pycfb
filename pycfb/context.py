@@ -57,6 +57,16 @@ class CFBContext:
         self.next_minifat = 0
         self.next_directory = 0
 
+    def _calc_total_size_bytes(self) -> int:
+        total_sectors = 1 # Header
+        total_sectors += self._calc_size_difat_sectors()
+        total_sectors += self._calc_size_fat_sectors()
+        total_sectors += self._calc_size_directory_sectors()
+        total_sectors += self._calc_size_file_sectors()
+        total_sectors += self._calc_size_minifat_sectors()
+        total_sectors += math.ceil(self._calc_ministream_size_bytes()/self.sector_size_bytes)
+        return total_sectors * self.sector_size_bytes
+
     def _increment_next_freesect(self):
         # Used to track the next available free sector in the file
         self.next_freesect_number += 1
