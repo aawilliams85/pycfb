@@ -1,8 +1,16 @@
 from collections import defaultdict
+from dataclasses import dataclass
 import os
 from pathlib import Path
+from typing import Optional
 
-from pycfb.types import *
+@dataclass
+class FileTreeItem:
+    path: str
+    name: str
+    is_file: bool
+    original_index: Optional[int] = None
+    parent_index: Optional[int] = None
 
 def get_unique_subdirs(paths: list[str]) -> list[str]:
     all_levels = set()
@@ -28,7 +36,7 @@ def get_file_tree(paths: list[str]) -> list[FileTreeItem]:
                 name = os.path.basename(segment)
 
                 # Check if it's a file (only if it's the leaf node in paths)
-                is_file = is_last_part and ("." in name) 
+                is_file = is_last_part and ("." in name)
                 visited[segment] = FileTreeItem(
                     path=segment,
                     name=name,
@@ -52,11 +60,12 @@ def get_file_tree(paths: list[str]) -> list[FileTreeItem]:
     def traverse(current_item):
         ordered_items.append(current_item)
         children = children_map.get(current_item.path, [])
-        children.sort(key=lambda x: x.name.upper())         
+        children.sort(key=lambda x: x.name.upper())
         for child in children:
             traverse(child)
     roots.sort(key=lambda x: x.name.upper())
-    for r in roots: traverse(r)
+    for r in roots:
+        traverse(r)
 
     # Map parent index
     path_to_new_idx = {item.path: i for i, item in enumerate(ordered_items)}

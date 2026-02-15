@@ -1,10 +1,11 @@
-import math
+from collections import defaultdict
+import ctypes
 
-from pycfb.constants import *
+from pycfb.constants import SIZE_MINISTREAM_CUTOFF_BYTES
 from pycfb.context import CFBContext
 from pycfb.enums import DirColor, DirType, Sector
 from pycfb.types import DirEntry
-from pycfb.util import *
+from pycfb.util import get_file_tree
 
 class CFBDirectoryMgr:
     def __init__(
@@ -19,15 +20,16 @@ class CFBDirectoryMgr:
         # Root Entry
         self.ctx.directory.append(self.allocate_root())
         self.ctx.fat_mgr.update(self.ctx.next_fat, Sector.ENDOFCHAIN)
-        self.ctx._increment_next_directory()
+        self.ctx.inc_next_directory()
 
         dirs = get_file_tree(self.ctx.stream_paths)
-        
+
         # Storage and Stream entries
         for i, x in enumerate(dirs):
             raw_name = f'{x.name[:31]}\x00'.encode('utf-16-le')
-            new_entry = DirEntry.from_buffer(self.ctx.data, self.ctx.next_freesect_offset + self.ctx.next_directory)
-            
+            new_offset = self.ctx.next_freesect_offset + self.ctx.next_directory
+            new_entry = DirEntry.from_buffer(self.ctx.data, new_offset)
+
             new_entry.name[:len(raw_name)] = raw_name
             new_entry.name_len_bytes = len(raw_name)
             new_entry.object_type = DirType.STREAM if x.is_file else DirType.STORAGE
@@ -35,7 +37,7 @@ class CFBDirectoryMgr:
             new_entry.left_sibling_id = Sector.NOSTREAM
             new_entry.right_sibling_id = Sector.NOSTREAM
             new_entry.child_id = Sector.NOSTREAM
-            
+
             if x.is_file:
                 new_entry.size_bytes = len(self.ctx.stream_data[x.original_index])
                 if new_entry.size_bytes >= SIZE_MINISTREAM_CUTOFF_BYTES:
@@ -47,7 +49,7 @@ class CFBDirectoryMgr:
                 new_entry.sector_start = 0
 
             self.ctx.directory.append(new_entry)
-            self.ctx._increment_next_directory()
+            self.ctx.inc_next_directory()
 
         # Build tree hierarchy
         children_map = defaultdict(list)
@@ -62,37 +64,38 @@ class CFBDirectoryMgr:
             """
             if not indices:
                 return Sector.NOSTREAM
-            
+
             # Sort by name length, then uppercase
-            indices.sort(key=lambda idx: (len(dirs[idx-1].name), dirs[idx-1].name.upper()))            
+            indices.sort(key=lambda idx: (len(dirs[idx-1].name), dirs[idx-1].name.upper()))
 
             mid = len(indices) // 2
             current_node_idx = indices[mid]            
             node = self.ctx.directory[current_node_idx]
             node.color_flag = color
-            
+
             # Build subtree
             next_color = DirColor.RED if color == DirColor.BLACK else DirColor.BLACK            
             node.left_sibling_id = build_balanced_tree(indices[:mid], next_color)
             node.right_sibling_id = build_balanced_tree(indices[mid+1:], next_color)
-            
+
             return current_node_idx
 
         # Fix pointers
         for parent_idx, children in children_map.items():
             child_tree_root = build_balanced_tree(children, DirColor.BLACK)
-            
+
             if parent_idx == -1:
                 self.ctx.directory[0].child_id = child_tree_root
             else:
                 self.ctx.directory[parent_idx + 1].child_id = child_tree_root
 
-            self.ctx._increment_next_fat()
-            self.ctx._increment_next_freesect()
-            
+            self.ctx.inc_next_fat()
+            self.ctx.inc_next_freesect()
+
     def allocate_root(self) -> DirEntry:
         raw_name = 'Root Entry\x00'.encode('utf-16-le')
-        new_entry = DirEntry.from_buffer(self.ctx.data, self.ctx.next_freesect_offset + self.ctx.next_directory)
+        new_offset = self.ctx.next_freesect_offset + self.ctx.next_directory
+        new_entry = DirEntry.from_buffer(self.ctx.data, new_offset)
         new_entry.name[:len(raw_name)] = raw_name
         new_entry.name_len_bytes = len(raw_name)
         new_entry.object_type = DirType.ROOTSTORAGE
@@ -102,7 +105,7 @@ class CFBDirectoryMgr:
 
         if len(self.ctx.minifat) > 0:
             new_entry.sector_start = self.ctx.ministream_start - 1
-            new_entry.size_bytes = math.ceil(len(self.ctx.minidata)/self.ctx.sector_size_bytes) * self.ctx.sector_size_bytes
+            new_entry.size_bytes = len(self.ctx.ministream_data)
 
         new_entry.child_id = Sector.NOSTREAM
         new_entry.clsid = (ctypes.c_byte * 16).from_buffer_copy(self.ctx.root_clsid.bytes)

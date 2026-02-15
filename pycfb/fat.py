@@ -10,13 +10,14 @@ class CFBFatMgr:
         self.ctx = ctx
 
     def allocate(self):
-        for x in range(self.ctx._calc_size_fat_sectors()):
+        for x in range(self.ctx.calc_fat_size_sectors()):
             new_sector = FatSector.from_buffer(self.ctx.data, self.ctx.next_freesect_offset)
-            for y in range(self.ctx.fat_entries_per_sector): new_sector.entries[y] = Sector.FREESECT
+            for y in range(self.ctx.fat_entries_per_sector):
+                new_sector.entries[y] = Sector.FREESECT
             self.ctx.fat.append(new_sector)
             self.update(x,Sector.FATSECT)
-            self.ctx._increment_next_fat()
-            self.ctx._increment_next_freesect()
+            self.ctx.inc_next_fat()
+            self.ctx.inc_next_freesect()
 
     def update(self, index: int, value: int):
         sector_idx = index // self.ctx.fat_entries_per_sector

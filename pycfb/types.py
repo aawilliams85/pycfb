@@ -1,8 +1,6 @@
 import ctypes
-from dataclasses import dataclass
-from typing import Optional
 
-from pycfb.constants import *
+from pycfb.constants import HEADER_DIFAT_COUNT
 
 class Header(ctypes.Structure):
     _pack_ = 1
@@ -97,11 +95,3 @@ class DirEntry(ctypes.Structure):
     time_modified: int
     sector_start: int
     size_bytes: int
-
-@dataclass
-class FileTreeItem:
-    path: str
-    name: str
-    is_file: bool
-    original_index: Optional[int] = None
-    parent_index: Optional[int] = None
