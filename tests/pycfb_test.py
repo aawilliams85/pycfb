@@ -20,19 +20,22 @@ class CFBTests(unittest.TestCase):
         for path1 in glob.glob(os.path.join(LOCAL_INPUT_PATH, '*')):
             i += 1
             print(path1)
-            names: list[str] = []
-            paths: list[str] = []
-            sizes: list[int] = []
-            data: list[bytes] = []
-            search_pattern = os.path.join(path1, '**', '*.*')
-            for path2 in glob.glob(search_pattern, recursive=True):
-                relative_path = os.path.relpath(path2, path1)
-                if relative_path is None:
-                    return
 
-                names.append(os.path.basename(path2))
+            if not os.path.isdir(path1):
+                continue
+
+            paths: list[str] = []
+            data: list[bytes] = []
+            search_pattern = os.path.join(path1, '**', '*')
+            for path2 in glob.glob(search_pattern, recursive=True):
+                print(path2)
+
+                if os.path.isdir(path2):
+                    continue
+
+                relative_path = os.path.relpath(path2, path1)
+
                 paths.append(relative_path)
-                sizes.append(os.path.getsize(path2))
                 with open(path2, 'rb') as f:
                     data.append(f.read())
 
