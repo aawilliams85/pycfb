@@ -154,6 +154,10 @@ class CFBContext:
     def calc_file_size_sectors_byfile(self) -> list[int]:
         sectors = []
         for stream in self.stream_data:
+            # Storage
+            if stream is None:
+                continue
+
             if len(stream) >= SIZE_MINISTREAM_CUTOFF_BYTES:
                 sectors.append(math.ceil(len(stream)/self.sector_size_bytes))
             else:
@@ -166,6 +170,10 @@ class CFBContext:
     def calc_file_size_minisectors_byfile(self) -> list[int]:
         sectors = []
         for stream in self.stream_data:
+            # Storage
+            if stream is None:
+                continue
+
             if len(stream) < SIZE_MINISTREAM_CUTOFF_BYTES:
                 sectors.append(math.ceil(len(stream)/self.minisector_size_bytes))
             else:

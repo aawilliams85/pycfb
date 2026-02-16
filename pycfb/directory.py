@@ -26,6 +26,9 @@ class CFBDirectoryMgr:
 
         # Storage and Stream entries
         for i, x in enumerate(dirs):
+            if self.ctx.stream_data[x.original_index] is None:
+                x.is_file = False
+
             raw_name = f'{x.name[:31]}\x00'.encode('utf-16-le')
             new_offset = self.ctx.next_freesect_offset + self.ctx.next_directory
             new_entry = DirEntry.from_buffer(self.ctx.data, new_offset)

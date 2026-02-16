@@ -30,14 +30,14 @@ class CFBTests(unittest.TestCase):
             for path2 in glob.glob(search_pattern, recursive=True):
                 print(path2)
 
-                if os.path.isdir(path2):
-                    continue
-
                 relative_path = os.path.relpath(path2, path1)
-
-                paths.append(relative_path)
-                with open(path2, 'rb') as f:
-                    data.append(f.read())
+                if os.path.isdir(path2):
+                    paths.append(relative_path)
+                    data.append(None)
+                else:
+                    paths.append(relative_path)
+                    with open(path2, 'rb') as f:
+                        data.append(f.read())
 
             x = CFBWriter(
                 stream_paths=paths,

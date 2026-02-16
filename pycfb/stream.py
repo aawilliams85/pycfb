@@ -13,6 +13,10 @@ class CFBStreamMgr:
 
     def allocate(self):
         for idx, stream in enumerate(self.ctx.stream_data):
+            # Storage
+            if stream is None:
+                continue
+
             if len(stream) >= SIZE_MINISTREAM_CUTOFF_BYTES:
                 self.ctx.stream_start_sectors[idx] = self.ctx.next_freesect_number
                 self.write_stream(stream)

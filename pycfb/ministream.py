@@ -13,6 +13,10 @@ class CFBMinistreamMgr:
 
     def allocate(self):
         for idx, stream in enumerate(self.ctx.stream_data):
+            # Storage
+            if stream is None:
+                continue
+
             if len(stream) < SIZE_MINISTREAM_CUTOFF_BYTES:
                 self.ctx.ministream_start_minisectors[idx] = self.ctx.next_minifat
                 self.write_stream(stream)
